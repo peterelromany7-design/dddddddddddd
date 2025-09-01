@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>أداة تحويل الصور إلى نص (OCR)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .container {
+            max-width: 800px;
+        }
+        .btn {
+            @apply px-4 py-2 rounded-lg font-bold transition-transform transform hover:scale-105;
+        }
+        .btn-primary {
+            @apply bg-indigo-600 text-white hover:bg-indigo-700;
+        }
+        .btn-secondary {
+            @apply bg-gray-200 text-gray-800 hover:bg-gray-300;
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+
+    <div class="container bg-white p-8 rounded-xl shadow-lg w-full">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">أداة تحويل الصور إلى نص</h1>
+        <p class="text-center text-gray-600 mb-8">
+            قم بتحويل المستندات المصورة أو الصور إلى ملفات نصية قابلة للتعديل.
+        </p>
+
+        <div id="uploader" class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center transition-all cursor-pointer hover:border-indigo-500">
+            <input type="file" id="fileInput" class="hidden" accept="image/*">
+            <label for="fileInput" class="cursor-pointer">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v8m3-9h1m-10 0H8"/>
+                </svg>
+                <p class="text-gray-500">اسحب وأفلت الملفات هنا أو <span class="text-indigo-600 font-bold">اضغط للرفع</span></p>
+                <p class="text-sm text-gray-400 mt-1">
+                    (ملفات JPG, PNG, أو PDF)
+                </p>
+            </label>
+        </div>
+
+        <div id="processing-loader" class="hidden text-center mt-6">
+            <svg class="animate-spin h-8 w-8 text-indigo-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p class="text-gray-500 mt-2">جاري استخراج النص...</p>
+        </div>
+
+        <div id="results" class="hidden mt-8">
+            <div class="bg-gray-100 rounded-lg p-4 mb-4">
+                <h3 class="font-bold text-gray-700 mb-2">النص المستخرج:</h3>
+                <pre id="extractedText" class="whitespace-pre-wrap font-mono text-gray-900 text-sm"></pre>
+            </div>
+            
+            <div class="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4 sm:space-x-reverse">
+                <button id="downloadText" class="btn btn-primary w-full sm:w-auto">تنزيل كملف نصي عادي</button>
+                <button id="reset" class="btn btn-secondary w-full sm:w-auto">إعادة تعيين</button>
+            </div>
+        </div>
+
+        <div id="error-message" class="hidden text-center mt-6 text-red-500 font-bold"></div>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const uploader = document.getElementById('uploader');
+        const processingLoader = document.getElementById('processing-loader');
+        const results = document.getElementById('results');
+        const extractedTextPre = document.getElementById('extractedText');
+        const downloadTextBtn = document.getElementById('downloadText');
+        const resetButton = document.getElementById('reset');
+        const errorMessage = document.getElementById('error-message');
+
+        const apiKey = ''; // Leave this empty for now. The canvas environment will provide it.
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+        let currentExtractedText = '';
+
+        // Handle file drop
+        uploader.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploader.classList.add('border-indigo-500');
+        });
+        uploader.addEventListener('dragleave', () => {
+            uploader.classList.remove('border-indigo-500');
+        });
+        uploader.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploader.classList.remove('border-indigo-500');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                processFile(files[0]);
+            }
+        });
+
+        // Handle file selection from button
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                processFile(e.target.files[0]);
+            }
+        });
+        
+        // Error message box function
+        const showMessage = (message, isError = true) => {
+            errorMessage.textContent = message;
+            errorMessage.classList.remove('hidden');
+            if (isError) {
+                errorMessage.classList.add('text-red-500');
+                errorMessage.classList.remove('text-green-500');
+            } else {
+                errorMessage.classList.add('text-green-500');
+                errorMessage.classList.remove('text-red-500');
+            }
+        };
+
+        const processFile = (file) => {
+            uploader.classList.add('hidden');
+            processingLoader.classList.remove('hidden');
+            results.classList.add('hidden');
+            errorMessage.classList.add('hidden');
+
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const base64Image = e.target.result.split(',')[1];
+                await performOCR(base64Image, file.type);
+            };
+            reader.readAsDataURL(file);
+        };
+
+        const performOCR = async (base64Data, mimeType) => {
+            const prompt = "استخرج جميع النصوص من هذه الصورة. قم بتحويل كل سطر في النص إلى سطر جديد.";
+            const payload = {
+                contents: [
+                    {
+                        role: "user",
+                        parts: [
+                            { text: prompt },
+                            {
+                                inlineData: {
+                                    mimeType: mimeType,
+                                    data: base64Data
+                                }
+                            }
+                        ]
+                    }
+                ],
+            };
+            
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                if (text) {
+                    currentExtractedText = text.trim();
+                    extractedTextPre.textContent = currentExtractedText;
+                    processingLoader.classList.add('hidden');
+                    results.classList.remove('hidden');
+                } else {
+                    showMessage("لم يتم العثور على أي نص في الصورة.");
+                    processingLoader.classList.add('hidden');
+                    resetState();
+                }
+
+            } catch (error) {
+                console.error("Error performing OCR:", error);
+                showMessage("حدث خطأ أثناء معالجة الصورة. يرجى المحاولة مرة أخرى.");
+                processingLoader.classList.add('hidden');
+                resetState();
+            }
+        };
+
+        downloadTextBtn.addEventListener('click', () => {
+            if (!currentExtractedText) return;
+            const link = document.createElement('a');
+            const blob = new Blob([currentExtractedText], { type: 'text/plain;charset=utf-8' });
+            link.href = URL.createObjectURL(blob);
+            link.download = 'extracted_text.txt';
+            link.click();
+            showMessage("تم إنشاء ملف نصي بنجاح!", false);
+        });
+
+        resetButton.addEventListener('click', () => {
+            resetState();
+        });
+
+        const resetState = () => {
+            currentExtractedText = '';
+            fileInput.value = '';
+            uploader.classList.remove('hidden');
+            processingLoader.classList.add('hidden');
+            results.classList.add('hidden');
+            errorMessage.classList.add('hidden');
+        };
+
+    </script>
+</body>
+</html>
